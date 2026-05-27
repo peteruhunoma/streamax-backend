@@ -16,7 +16,7 @@ const register = async (req, res) => {
     const email = req.body.email;
     
     // Check if email exists
-    const existingPhoneResult = await pool.query('SELECT id FROM streamax.login WHERE email = $1', [email]);
+    const existingPhoneResult = await pool.query('SELECT id FROM login WHERE email = $1', [email]);
     const existingPhone = existingPhoneResult.rows;
     
     if (existingPhone.length > 0) {
@@ -44,7 +44,7 @@ const register = async (req, res) => {
     
     // Insert new user
     const result = await pool.query(
-      'INSERT INTO streamax.login (email, fullname, password, userimage, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING *', 
+      'INSERT INTO login (email, fullname, password, userimage, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING *', 
       [email, fullName, hashpassword, "default.jpg", date]
     );
     const userId = result.rows[0].id;
@@ -80,7 +80,7 @@ const login = async (req, res) => {
 
     // Find user by email or username
     const dataResult = await pool.query(
-      "SELECT * FROM streamax.login WHERE email = $1",
+      "SELECT * FROM login WHERE email = $1",
       [email]
     );
     const data = dataResult.rows;
@@ -166,7 +166,7 @@ const profile = async (req, res) => {
     
     // Store only the filename in the database
     const profileUpdate = await pool.query(
-      "UPDATE streamax.login SET userimage = $1 WHERE id = $2 RETURNING *", 
+      "UPDATE login SET userimage = $1 WHERE id = $2 RETURNING *", 
       [image, loggedInUser.id] // image is just the filename
     );
     

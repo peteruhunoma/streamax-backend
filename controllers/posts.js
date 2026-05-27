@@ -14,8 +14,8 @@ const getPosts = async (req, res) => {
   try {
     const { rows: videos } = await pool.query(`
       SELECT v.*, l.userimage 
-      FROM streamax.videos v
-      LEFT JOIN streamax.login l ON l.id = v.user_id
+      FROM videos v
+      LEFT JOIN login l ON l.id = v.user_id
       WHERE v.visibility = $1 AND v.short = $2 
       ORDER BY v.created_at DESC
     `, ["public", false]);
@@ -39,7 +39,7 @@ const getShortPosts = async (req, res) => {
   try {
     const short = true;
     // Get contacts with their status
-    const { rows: videos } = await pool.query(`SELECT * FROM streamax.videos WHERE visibility = $1 AND short = $2 ORDER BY created_at DESC`, ["public", short]);
+    const { rows: videos } = await pool.query(`SELECT * FROM videos WHERE visibility = $1 AND short = $2 ORDER BY created_at DESC`, ["public", short]);
     
     res.status(200).json(videos);
     console.log(videos)
@@ -57,11 +57,11 @@ const getPost = async (req, res) => {
     const watchID = parseInt(id);
     
     const { rows: watchRows } = await pool.query(
-      `SELECT * FROM streamax.videos 
+      `SELECT * FROM videos 
        WHERE id = $1`, 
       [watchID]
     );
-    const {rows : userimage} = await pool.query(`SELECT userimage FROM streamax.login WHERE id = $1`, [watchRows[0].user_id])
+    const {rows : userimage} = await pool.query(`SELECT userimage FROM login WHERE id = $1`, [watchRows[0].user_id])
     // Convert comma-separated tags to array
     const watch = watchRows.map(video => ({
       ...video,
@@ -99,7 +99,7 @@ const addPost = async (req, res) => {
     
     // Make sure to use 'thumbnail' and 'video' (not 'thumbnails' or 'videos')
     const result = await pool.query(
-      `INSERT INTO streamax.videos 
+      `INSERT INTO videos 
        (title, description, tags, thumbnails, visibility, video, user_id, username, short, created_at)
        VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW()) 
        RETURNING *`,
@@ -131,7 +131,7 @@ const addShortPost = async (req, res) => {
     
     // Make sure to use 'thumbnail' and 'video' (not 'thumbnails' or 'videos')
     const result = await pool.query(
-      `INSERT INTO streamax.videos 
+      `INSERT INTO videos 
        (title, description, tags, thumbnails, visibility, video, user_id, username, short, created_at)
        VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW()) 
        RETURNING *`,
@@ -164,7 +164,7 @@ const addsubs = async (req, res) => {
 
     // Check if channel exists
     const { rows: channelname } = await pool.query(
-      "SELECT fullname FROM streamax.login WHERE id = $1",
+      "SELECT fullname FROM login WHERE id = $1",
       [userid]
     );
     
@@ -177,14 +177,14 @@ const addsubs = async (req, res) => {
 
     // Check if already subscribed
     const { rows: subs } = await pool.query(
-      "SELECT id FROM streamax.subscribers WHERE subid = $1 AND userid = $2",
+      "SELECT id FROM subscribers WHERE subid = $1 AND userid = $2",
       [userid, loggedInUser.id]
     );
 
     // If already subscribed, unsubscribe
     if (subs.length > 0) {
       await pool.query(
-        "DELETE FROM streamax.subscribers WHERE id = $1 RETURNING *",
+        "DELETE FROM subscribers WHERE id = $1 RETURNING *",
         [subs[0].id]
       );
       return res.status(200).json({ message: "Unsubscribed successfully" });
@@ -192,7 +192,7 @@ const addsubs = async (req, res) => {
 
     // Otherwise, subscribe
     const { rows: result } = await pool.query(
-      `INSERT INTO streamax.subscribers (subid, userid, channelname, username, subs, created_at) 
+      `INSERT INTO subscribers (subid, userid, channelname, username, subs, created_at) 
        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) 
        RETURNING *`,
       [userid, loggedInUser.id, channel, loggedInUser.fullname, sub]
@@ -218,21 +218,21 @@ const addlikes = async (req, res) => {
     }
 
     const { rows: video } = await pool.query(
-      "SELECT id, title FROM streamax.videos WHERE id = $1 ",
+      "SELECT id, title FROM videos WHERE id = $1 ",
       [id]
     );
 
     
     // Check if already subscribed
     const { rows: like } = await pool.query(
-      "SELECT id FROM streamax.likes WHERE videoid = $1 AND userid = $2",
+      "SELECT id FROM likes WHERE videoid = $1 AND userid = $2",
       [id, loggedInUser.id]
     );
 
     // If already subscribed, unsubscribe
     if (like.length > 0) {
       await pool.query(
-        "DELETE FROM streamax.likes WHERE id = $1",
+        "DELETE FROM likes WHERE id = $1",
         [like[0].id]
       );
       return res.status(200).json({ message: "Unlike successfully" });
@@ -240,7 +240,7 @@ const addlikes = async (req, res) => {
 
     // Otherwise, subscribe
     const { rows: result } = await pool.query(
-      `INSERT INTO streamax.likes (videoid, userid, username,  videoname, videolike, created_at) 
+      `INSERT INTO likes (videoid, userid, username,  videoname, videolike, created_at) 
        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) 
        RETURNING *`,
       [id, loggedInUser.id, loggedInUser.fullname, video[0].title, addlike]
@@ -268,7 +268,7 @@ const getsubs = async (req, res) => {
     }
 
     const { rows: subs } = await pool.query(
-      "SELECT subs, userid, subid FROM streamax.subscribers WHERE subid = $1", 
+      "SELECT subs, userid, subid FROM subscribers WHERE subid = $1", 
       [userid]
     );
     
@@ -300,7 +300,7 @@ const getlikes = async (req, res) => {
     }
 
     const { rows: likes } = await pool.query(
-      "SELECT videolike, userid, videoid FROM streamax.likes WHERE videoid = $1", 
+      "SELECT videolike, userid, videoid FROM likes WHERE videoid = $1", 
       [id]
     );
     
@@ -331,7 +331,7 @@ const addviews = async (req, res) => {
 
     // Get current views first
     const { rows: currentVideo } = await pool.query(
-      "SELECT views FROM streamax.videos WHERE id = $1",
+      "SELECT views FROM videos WHERE id = $1",
       [id]
     );
 
@@ -344,7 +344,7 @@ const addviews = async (req, res) => {
 
     // Update with new view count
     const { rows: updatedVideo } = await pool.query(
-      "UPDATE streamax.videos SET views = $1 WHERE id = $2 RETURNING *",
+      "UPDATE videos SET views = $1 WHERE id = $2 RETURNING *",
       [newViews, id]
     );
 
@@ -363,13 +363,13 @@ const postComment = async (req, res) => {
     }
     
     const { rows: video } = await pool.query(
-      "SELECT id, title FROM streamax.videos WHERE id = $1 ",
+      "SELECT id, title FROM videos WHERE id = $1 ",
       [id]
     );
      
      
     const chatResult = await pool.query(
-      `INSERT INTO streamax.comment 
+      `INSERT INTO comment 
        (userid, videoid, comment, username, videoname, created_at) 
        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) 
        RETURNING *`,
@@ -400,18 +400,18 @@ const postCommentLikes = async (req, res) => {
     }
     
     const { rows: video } = await pool.query(
-      "SELECT id, title FROM streamax.videos WHERE id = $1 ",
+      "SELECT id, title FROM videos WHERE id = $1 ",
       [id]
     );
     const { rows: like } = await pool.query(
-      "SELECT id FROM streamax.commentlikes WHERE videoid = $1 AND userid = $2",
+      "SELECT id FROM commentlikes WHERE videoid = $1 AND userid = $2",
       [id, loggedInUser.id]
     );
 
     // If already liked, unlike
     if (like.length > 0) {
       await pool.query(
-        "DELETE FROM streamax.commentlikes WHERE id = $1",
+        "DELETE FROM commentlikes WHERE id = $1",
         [like[0].id]
       );
       return res.status(200).json({ message: "Unlike successfully" });
@@ -419,7 +419,7 @@ const postCommentLikes = async (req, res) => {
 
      
     const chatResult = await pool.query(
-      `INSERT INTO streamax.commentlikes 
+      `INSERT INTO commentlikes 
        (userid, videoid, commentid, videolike, username, videoname,  created_at) 
        VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP) 
        RETURNING *`,
@@ -452,7 +452,7 @@ const getcomment = async (req, res) => {
     }
 
     const { rows: comment } = await pool.query(
-      "SELECT * FROM streamax.comment WHERE videoid = $1", 
+      "SELECT * FROM comment WHERE videoid = $1", 
       [id]
     );
   
@@ -476,7 +476,7 @@ const getCommentLikes = async (req, res) => {
     }
 
     const { rows: comment } = await pool.query(
-      "SELECT * FROM streamax.commentlikes WHERE videoid = $1 AND commentid = $2", 
+      "SELECT * FROM commentlikes WHERE videoid = $1 AND commentid = $2", 
       [id, commentid]
     );
   
@@ -497,8 +497,8 @@ const contentVideo = async (req, res) => {
     
     const { rows: videos } = await pool.query(`
       SELECT v.*, l.userimage 
-      FROM streamax.videos v
-      LEFT JOIN streamax.login l ON l.id = v.user_id
+      FROM videos v
+      LEFT JOIN login l ON l.id = v.user_id
       WHERE v.user_id = $1 AND v.visibility = $2 
       ORDER BY v.created_at DESC
     `, [userid, "public"]);
@@ -528,8 +528,8 @@ const personalContentVideo = async (req, res) => {
     
     const { rows: videos } = await pool.query(`
       SELECT v.*, l.userimage 
-      FROM streamax.videos v
-      LEFT JOIN streamax.login l ON l.id = v.user_id
+      FROM videos v
+      LEFT JOIN login l ON l.id = v.user_id
       WHERE v.user_id = $1 
       ORDER BY v.created_at DESC
     `, [userid]);
@@ -558,7 +558,7 @@ try{
   }
   console.log(videoid);
   const { rows: deletedVideos } = await pool.query(
-    "DELETE FROM streamax.videos WHERE id = $1 RETURNING *", 
+    "DELETE FROM videos WHERE id = $1 RETURNING *", 
     [videoid]
   );
   res.status(200).json(deletedVideos);
@@ -575,7 +575,7 @@ try{
     return res.status(401).json("you are not logged in");
   }
   const { rows: vbVideos } = await pool.query(
-    "UPDATE streamax.videos SET visibility = $1 WHERE id = $2", 
+    "UPDATE videos SET visibility = $1 WHERE id = $2", 
     [status, id]
   );
   res.status(200).json(vbVideos);
@@ -597,8 +597,8 @@ const viewSubs = async (req, res) => {
 
     // Get all subscribed channels
     const { rows: channels } = await pool.query(
-      `SELECT l.* FROM streamax.login l
-       INNER JOIN streamax.subscribers s ON l.id = s.subid
+      `SELECT l.* FROM login l
+       INNER JOIN subscribers s ON l.id = s.subid
        WHERE s.userid = $1`,
       [loggedInUser.id]
     );
@@ -606,7 +606,7 @@ const viewSubs = async (req, res) => {
     // Get videos for each channel
     for (let channel of channels) {
       const { rows: videos } = await pool.query(
-        "SELECT * FROM streamax.videos WHERE user_id = $1 ORDER BY created_at DESC",
+        "SELECT * FROM videos WHERE user_id = $1 ORDER BY created_at DESC",
         [channel.id]
       );
       channel.videos = videos;
@@ -629,8 +629,8 @@ const likedVideo = async (req, res) => {
     // Get videos with their corresponding like IDs in one query
     const { rows: videosWithLikeIds } = await pool.query(
       `SELECT v.*, l.id as like_id
-       FROM streamax.videos v
-       INNER JOIN streamax.likes l ON v.id = l.videoid
+       FROM videos v
+       INNER JOIN likes l ON v.id = l.videoid
        WHERE l.userid = $1`,
       [loggedInUser.id]
     );
@@ -654,7 +654,7 @@ const deletelikedVideo = async (req, res) => {
     
     // If already subscribed, unsubscribe
     
-      const {rows : liked} = await pool.query("DELETE FROM streamax.likes WHERE id = $1 AND userid = $2",
+      const {rows : liked} = await pool.query("DELETE FROM likes WHERE id = $1 AND userid = $2",
         [videoid, loggedInUser.id]
       );
     
@@ -677,7 +677,7 @@ const channeldetails = async (req, res) => {
     
     // If already subscribed, unsubscribe
     
-      const {rows : details} = await pool.query("SELECT id, fullname FROM streamax.login WHERE id = $1",
+      const {rows : details} = await pool.query("SELECT id, fullname FROM login WHERE id = $1",
         [userid]
       );
     
@@ -697,7 +697,7 @@ const searchVideos = async (req, res) => {
     }
 
     const searchQuery = `
-      SELECT * FROM streamax.videos 
+      SELECT * FROM videos 
       WHERE 
         title ILIKE $1 OR 
         username ILIKE $1 OR 
@@ -726,7 +726,7 @@ const getUserImage = async (req, res) => {
     }
     
     const { rows: userimage } = await pool.query(`
-      SELECT userimage FROM streamax.login 
+      SELECT userimage FROM login 
       WHERE id = $1
     `, [userid]);
     
