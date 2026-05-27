@@ -22,7 +22,7 @@ const app = express();
 
                                                   
 app.use(cors(
-  {origin: 'https://streamax-rho.vercel.app/', 
+  {origin: 'https://streamax-rho.vercel.app', 
 credentials: true}));
 app.use(cookieParser());
 app.use(express.json()); 
