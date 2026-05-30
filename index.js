@@ -12,6 +12,7 @@ const path = require('path');
 const busboy = require('busboy');
 const fs = require("fs");
 const {verifyTokenCookie} = require("./controllers/middlewareAuth.js");
+const cloudinary = require('./cloudinary.js');
 
 require('dotenv').config();
 
@@ -21,9 +22,10 @@ const port = process.env.PORT || 3000;
 const app = express();
 
                                                   
-app.use(cors(
-  {origin: 'https://streamax-rho.vercel.app', 
-credentials: true}));
+app.use(cors({
+  origin:  'https://streamax-rho.vercel.app',
+  credentials: true
+}));
 app.use(cookieParser());
 app.use(express.json()); 
 
@@ -33,6 +35,29 @@ app.get('/favicon.ico', (req, res)=>{
   res.status(204).end();
 })
 
+
+// Helper function to upload to Cloudinary with retries
+const uploadToCloudinary = (filePath, options, retries = 3) => {
+  return new Promise((resolve, reject) => {
+    const attemptUpload = (attempt) => {
+      cloudinary.uploader.upload(filePath, options, (error, result) => {
+        if (error) {
+          if (attempt < retries) {
+            console.log(`Upload attempt ${attempt} failed, retrying...`);
+            attemptUpload(attempt + 1);
+          } else {
+            reject(error);
+          }
+        } else {
+          resolve(result);
+        }
+      });
+    };
+    attemptUpload(1);
+  });
+};
+
+// Video upload route
 app.post('/upload', verifyTokenCookie, async (req, res) => {
   try {
     // Check if user exists
@@ -40,15 +65,9 @@ app.post('/upload', verifyTokenCookie, async (req, res) => {
       return res.status(401).json({ error: "User not authenticated" });
     }
     
-    // Log the user object to see its structure
-    console.log('Full user object:', JSON.stringify(req.user, null, 2));
-    
-    // Get user info - adjust based on your token structure
+    // Get user info
     const userId = req.user.id || req.user.userId;
-    const username =  req.user.res.fullname;
-    
-    console.log('Extracted - User ID:', userId);
-    console.log('Extracted - Username:', username);
+    const username = req.user.res.fullname;
     
     if (!userId || !username) {
       return res.status(400).json({ 
@@ -57,22 +76,8 @@ app.post('/upload', verifyTokenCookie, async (req, res) => {
       });
     }
     
-    // Setup directories - use username or userId
-    const uploadDir = path.join(__dirname, '../client/streamax/public/uploads');
-    const userDir = path.join(uploadDir, username || String(userId));
-    
-    // Create directories
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    
-    if (!fs.existsSync(userDir)) {
-      fs.mkdirSync(userDir, { recursive: true });
-    }
-    
     // Parse form data
     const form = new multiparty.Form({ 
-      uploadDir: userDir,
       maxFilesSize: 500 * 1024 * 1024 // 500MB
     });
     
@@ -86,7 +91,7 @@ app.post('/upload', verifyTokenCookie, async (req, res) => {
       const uploadedVideo = files.video ? files.video[0] : null;
       
       if (!productName) {
-        if (uploadedVideo && fs.existsSync(uploadedVideo.path)) {
+        if (uploadedVideo && uploadedVideo.path && fs.existsSync(uploadedVideo.path)) {
           fs.unlinkSync(uploadedVideo.path);
         }
         return res.status(400).json({ error: "Product name is required" });
@@ -110,25 +115,35 @@ app.post('/upload', verifyTokenCookie, async (req, res) => {
         return res.status(400).json({ error: 'Only video formats allowed (MP4, MPEG, MOV, AVI, WEBM)' });
       }
       
-      // Create product directory
-      const productDir = path.join(userDir, productName);
-      if (!fs.existsSync(productDir)) {
-        fs.mkdirSync(productDir, { recursive: true });
+      try {
+        // Upload to Cloudinary
+        const result = await uploadToCloudinary(uploadedVideo.path, {
+          resource_type: "video",
+          folder: `streamax/users/${username}/${productName}`,
+          public_id: `video_${Date.now()}`,
+          overwrite: true,
+          use_filename: true,
+          unique_filename: false
+        });
+        
+        // Clean up temporary file
+        if (fs.existsSync(uploadedVideo.path)) {
+          fs.unlinkSync(uploadedVideo.path);
+        }
+        
+        res.status(200).json({ 
+          success: true,
+          filename: result.public_id,
+          url: result.secure_url,
+          message: "Video uploaded successfully to Cloudinary"
+        });
+      } catch (cloudinaryError) {
+        console.error('Cloudinary upload error:', cloudinaryError);
+        if (fs.existsSync(uploadedVideo.path)) {
+          fs.unlinkSync(uploadedVideo.path);
+        }
+        return res.status(500).json({ error: "Failed to upload to Cloudinary", details: cloudinaryError.message });
       }
-      
-      // Move file
-      const oldPath = uploadedVideo.path;
-      const fileExtension = path.extname(uploadedVideo.originalFilename);
-      const newFilename = `video_${Date.now()}${fileExtension}`;
-      const newPath = path.join(productDir, newFilename);
-      
-      fs.renameSync(oldPath, newPath);
-      
-      res.status(200).json({ 
-        success: true,
-        filename: newFilename,
-        message: "Video uploaded successfully"
-      });
     });
   } catch (error) {
     console.error('Upload error:', error);
@@ -150,19 +165,7 @@ app.post('/uploadimg', verifyTokenCookie, async (req, res) => {
       return res.status(400).json({ error: "User information incomplete" });
     }
     
-    const uploadDir = path.join(__dirname, '../client/streamax/public/uploads');
-    const userDir = path.join(uploadDir, username || String(userId));
-    
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    
-    if (!fs.existsSync(userDir)) {
-      fs.mkdirSync(userDir, { recursive: true });
-    }
-    
     const form = new multiparty.Form({ 
-      uploadDir: userDir,
       maxFilesSize: 50 * 1024 * 1024 // 50MB
     });
     
@@ -175,7 +178,7 @@ app.post('/uploadimg', verifyTokenCookie, async (req, res) => {
       const uploadedImage = files.image ? files.image[0] : null;
       
       if (!productName) {
-        if (uploadedImage && fs.existsSync(uploadedImage.path)) {
+        if (uploadedImage && uploadedImage.path && fs.existsSync(uploadedImage.path)) {
           fs.unlinkSync(uploadedImage.path);
         }
         return res.status(400).json({ error: "Product name is required" });
@@ -197,29 +200,47 @@ app.post('/uploadimg', verifyTokenCookie, async (req, res) => {
         return res.status(400).json({ error: 'Only image formats allowed (JPEG, PNG, JPG, GIF, WEBP)' });
       }
       
-      const productDir = path.join(userDir, productName);
-      if (!fs.existsSync(productDir)) {
-        fs.mkdirSync(productDir, { recursive: true });
+      try {
+        // Upload to Cloudinary
+        const result = await uploadToCloudinary(uploadedImage.path, {
+          resource_type: "image",
+          folder: `streamax/users/${username}/${productName}`,
+          public_id: `image_${Date.now()}`,
+          overwrite: true,
+          use_filename: true,
+          unique_filename: false,
+          transformation: [
+            { quality: "auto" },
+            { fetch_format: "auto" }
+          ]
+        });
+        
+        // Clean up temporary file
+        if (fs.existsSync(uploadedImage.path)) {
+          fs.unlinkSync(uploadedImage.path);
+        }
+        
+        res.status(200).json({ 
+          success: true,
+          filename: result.public_id,
+          url: result.secure_url,
+          message: "Image uploaded successfully to Cloudinary"
+        });
+      } catch (cloudinaryError) {
+        console.error('Cloudinary upload error:', cloudinaryError);
+        if (fs.existsSync(uploadedImage.path)) {
+          fs.unlinkSync(uploadedImage.path);
+        }
+        return res.status(500).json({ error: "Failed to upload to Cloudinary", details: cloudinaryError.message });
       }
-      
-      const oldPath = uploadedImage.path;
-      const fileExtension = path.extname(uploadedImage.originalFilename);
-      const newFilename = `image_${Date.now()}${fileExtension}`;
-      const newPath = path.join(productDir, newFilename);
-      
-      fs.renameSync(oldPath, newPath);
-      
-      res.status(200).json({ 
-        success: true,
-        filename: newFilename,
-        message: "Image uploaded successfully"
-      });
     });
   } catch (error) {
     console.error('Image upload error:', error);
     res.status(500).json({ error: "Server error during image upload" });
   }
 });
+
+// Profile image upload route
 app.post('/uploadprofileimg', verifyTokenCookie, async (req, res) => {
   try {
     const loggedInUser = req.user.res;
@@ -235,20 +256,7 @@ app.post('/uploadprofileimg', verifyTokenCookie, async (req, res) => {
       return res.status(400).json({ error: "User information incomplete" });
     }
     
-    const uploadDir = path.join(__dirname, '../client/streamax/public/uploadeduser');
-    const userDir = path.join(uploadDir, username);
-    
-    // Ensure directories exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    
-    if (!fs.existsSync(userDir)) {
-      fs.mkdirSync(userDir, { recursive: true });
-    }
-    
     const form = new multiparty.Form({ 
-      uploadDir: userDir,
       maxFilesSize: 5 * 1024 * 1024 // 5MB for profile images
     });
     
@@ -278,18 +286,41 @@ app.post('/uploadprofileimg', verifyTokenCookie, async (req, res) => {
         return res.status(400).json({ error: 'Only image formats allowed (JPEG, PNG, JPG, WEBP)' });
       }
       
-      const fileExtension = path.extname(uploadedImage.originalFilename);
-      const newFilename = `profile_${Date.now()}${fileExtension}`;
-      const newPath = path.join(userDir, newFilename);
-      
-      fs.renameSync(uploadedImage.path, newPath);
-      
-      // Return ONLY the filename (not the full path)
-      res.status(200).json({ 
-        success: true,
-        filename: newFilename, // Just the filename
-        message: "Profile image uploaded successfully"
-      });
+      try {
+        // Upload profile image to Cloudinary
+        const result = await uploadToCloudinary(uploadedImage.path, {
+          resource_type: "image",
+          folder: `streamax/profiles/${username}`,
+          public_id: `profile_${Date.now()}`,
+          overwrite: true,
+          use_filename: true,
+          unique_filename: false,
+          transformation: [
+            { width: 400, height: 400, crop: "fill", gravity: "face" },
+            { quality: "auto" },
+            { fetch_format: "auto" }
+          ]
+        });
+        
+        // Clean up temporary file
+        if (fs.existsSync(uploadedImage.path)) {
+          fs.unlinkSync(uploadedImage.path);
+        }
+        
+        // Return only the filename and URL
+        res.status(200).json({ 
+          success: true,
+          filename: result.public_id,
+          url: result.secure_url,
+          message: "Profile image uploaded successfully to Cloudinary"
+        });
+      } catch (cloudinaryError) {
+        console.error('Cloudinary upload error:', cloudinaryError);
+        if (fs.existsSync(uploadedImage.path)) {
+          fs.unlinkSync(uploadedImage.path);
+        }
+        return res.status(500).json({ error: "Failed to upload to Cloudinary", details: cloudinaryError.message });
+      }
     });
   } catch (err) {
     console.log('Image upload error:', err);
@@ -297,6 +328,32 @@ app.post('/uploadprofileimg', verifyTokenCookie, async (req, res) => {
   }
 });
 
+// Optional: Route to delete files from Cloudinary
+app.delete('/delete-file', verifyTokenCookie, async (req, res) => {
+  try {
+    const { publicId, resourceType = 'image' } = req.body;
+    
+    if (!publicId) {
+      return res.status(400).json({ error: "Public ID is required" });
+    }
+    
+    const result = await new Promise((resolve, reject) => {
+      cloudinary.uploader.destroy(publicId, { resource_type: resourceType }, (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      });
+    });
+    
+    res.status(200).json({ 
+      success: true, 
+      message: "File deleted successfully",
+      result 
+    });
+  } catch (error) {
+    console.error('Delete error:', error);
+    res.status(500).json({ error: "Failed to delete file" });
+  }
+});
 
  
 
@@ -322,7 +379,6 @@ pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);
   process.exit(-1);
 });
-
 
 
 module.exports = app;
